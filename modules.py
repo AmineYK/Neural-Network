@@ -1,6 +1,7 @@
 import numpy as np
 import math
 from utils import *
+from tqdm import tqdm
 
 
 
@@ -12,31 +13,37 @@ class Loss(object):
         pass
 
 
+
+
 class CrossEntropieLoss(Loss):
+
+    def __init__(self,nb_classe) -> None:
+        super().__init__()
+        self.nb_classe = nb_classe
+
     def forward(self, y, yhat):
 
-        # z ---> (N x K)
-        z = softmax(yhat)
+        # yhat deja softmaxé
+        # yhat ---> (N x K)
         # y_oh : matrice binaire ---> (N x K)
-        y_oh = y_to_one_hot(y)
+        y_oh = y_to_one_hot(y,self.nb_classe)
         N = y.shape[0]
 
         # log_sum ---> (N x 1)
-        log_sum = np.log(np.sum(np.exp(z),axis=1,keepdims=True))
+        log_sum = np.log(np.sum(np.exp(yhat),axis=1,keepdims=True))
         indices = np.where(y_oh == 1)[1]
         # selected_entropie ---> (N x 1)
-        selected_entropie = z[np.arange(N), indices].reshape(-1,1)
+        selected_entropie = yhat[np.arange(N), indices].reshape(-1,1)
 
         # cout_cross_entropique ---> (N x 1)
         cout_cross_entropique = -selected_entropie + log_sum
         return cout_cross_entropique
 
     def backward(self, y, yhat):
-        z = softmax(yhat)
-        y_oh = y_to_one_hot(y)
+        y_oh = y_to_one_hot(y,self.nb_classe)
         
         # de taille (N x K)
-        return z - y_oh
+        return yhat - y_oh
 
 
 
@@ -93,10 +100,10 @@ class  ModuleLineaire (Module):
         val0,val1 = plage_biais
 
         if init == 1:
-            #self._parameters = np.random.uniform(-1,1,(d,d_prime))
-            #self.biais = np.random.uniform(val0,val1,(1,d_prime)) 
-            self._parameters = 2 * (np.random.rand(d,d_prime) - 0.5)
-            self.biais = np.random.randn(1,d_prime)
+            self._parameters = np.random.uniform(-1,1,(d,d_prime)) * facteur_norma
+            self.biais = np.random.uniform(val0,val1,(1,d_prime)) 
+            #self._parameters = 2 * (np.random.rand(d,d_prime) - 0.5)
+            #self.biais = np.random.randn(1,d_prime)
         else: 
             self._parameters = np.zeros((d,d_prime))
             self.biais = np.zeros((1,d_prime))
@@ -159,6 +166,24 @@ class  ModuleActivation(Module):
         pass
 
 
+
+class SoftMax(ModuleActivation):
+    def __init__(self):
+        super().__init__()  
+
+    def forward(self, X):
+        # X represente l'entrée du module
+        return softmax(X)
+
+    def backward_delta(self, input, delta):
+        # pour des questions de securité
+        assert input.shape[0] == delta.shape[0] , "Taille du batch non prise en compte"
+        # dans le cas ou delta --> (N,) autrement dit : d_prime = 1
+        if delta.ndim == 1:
+            delta = delta.reshape(-1,1)
+
+        s = softmax(input)
+        return s * (1 - s) * delta
           
 class  ModuleTanH(ModuleActivation):
     def __init__(self):
@@ -217,16 +242,24 @@ class  Sequentiel(object):
         return [(module._parameters) for module in self.modules if not isinstance(module,ModuleActivation)]
 
 
-    def predict(self,data):
+    def predict(self,data,neg_classe=-1):
         input = data
         self.inputs = []
         for module in self.modules:
             self.inputs.append(input)
             sortie_module = self.forward_step(input,module)
             input = sortie_module
-            
-        return sortie_module
 
+            
+        if neg_classe == -1 : 
+            yhat = np.where(sortie_module > 0 , 1 , -1)
+        elif neg_classe == 0:
+            yhat = np.where(sortie_module > 0.5 , 1 ,0)
+        else: 
+            nb_classes = neg_classe
+            yhat = np.argmax(sortie_module,axis=1)
+        
+        return yhat
 
     def forward_step(self,input,module):
         return module.forward(input)
@@ -276,6 +309,16 @@ class  Sequentiel(object):
         for module in self.modules:
             module.zero_grad()
 
+    def accuracy(self,data,labels):
+        neg_classe = min(np.unique(labels,return_counts=True)[0])
+        yhat = self.predict(data,neg_classe)
+        print(yhat.shape)
+        return (labels == yhat ).mean()
+
+    def accuracy_multi(self,data,labels):
+        neg_classe = 10
+        yhat = self.predict(data,neg_classe)
+        return (labels == yhat ).mean()
 
 class  Optim(object):
     def __init__(self,network,loss,eps):
@@ -283,6 +326,7 @@ class  Optim(object):
         self.network = network
         self.loss = loss
         self.eps = eps
+        self.losses = []
 
     def getNetwork(self):
         return self.network
@@ -300,14 +344,13 @@ class  Optim(object):
 
         return loss_value.mean()
 
-    def SGD(self,data,labels,taille_batch,nb_epochs):
+    def SGD(self,data,labels,taille_batch,nb_epochs,verbose=False):
 
         n_samples = data.shape[0]
         n_batches = n_samples // taille_batch
 
-        losses = []
 
-        for epoch in range(nb_epochs):
+        for epoch in tqdm(range(nb_epochs)):
             loss_epoch = 0
 
             indices = np.random.permutation(n_samples)
@@ -321,9 +364,30 @@ class  Optim(object):
                 loss_epoch += self.step(data_batch, labels_batch)
 
             loss_epoch /= n_batches
-            losses.append(loss_epoch)
+            self.losses.append(loss_epoch)
 
-            if (epoch + 1) % 100 == 0:
+            if verbose and (epoch + 1) % 100 == 0:
                 print(f"Epoch {epoch+1}/{taille_batch} - Loss: {loss_epoch}")
 
-        return losses
+    def affichage(self,data,labels,step=1000):
+        mmax=data.max(0)
+        mmin=data.min(0)
+        x1grid,x2grid=np.meshgrid(np.linspace(mmin[0],mmax[0],step),np.linspace(mmin[1],mmax[1],step))
+        grid=np.hstack((x1grid.reshape(x1grid.size,1),x2grid.reshape(x2grid.size,1)))
+        
+        # calcul de la prediction pour chaque point de la grille
+        neg_classe = min(np.unique(labels,return_counts=True)[0])
+        yhat = self.network.predict(grid,neg_classe)
+        yhat=yhat.reshape(x1grid.shape)
+        # tracer des frontieres
+        # colors[0] est la couleur des -1 et colors[1] est la couleur des +1
+        plt.contourf(x1grid,x2grid,yhat,colors=["darksalmon","skyblue"],levels=[-1000,0,1000])
+        plot2DSet(data,labels,neg_classe,1)
+        plt.show()
+
+
+        plt.title("Erreur moyenne")
+        plt.plot(np.arange(len(self.losses)),self.losses)
+        plt.show()
+
+        print("Accuracy  : ",self.network.accuracy(data,labels))

@@ -36,43 +36,13 @@ def plot2DSet(data2_desc,data2_label,neg,pos):
     data2_negatifs = data2_desc[data2_label == neg]
     # Extraction des exemples de classe +1:
     data2_positifs = data2_desc[data2_label == pos]
-    plt.scatter(data2_positifs[:,0],data2_positifs[:,1],marker='x', color="blue") # 'o' rouge pour la classe -1
-    plt.scatter(data2_negatifs[:,0],data2_negatifs[:,1],marker='o', color="red") # 'x' bleu pour la classe +1
+    plt.scatter(data2_positifs[:,0],data2_positifs[:,1],marker='x', label="classe "+str(pos),color="blue") # 'o' rouge pour la classe -1
+    plt.scatter(data2_negatifs[:,0],data2_negatifs[:,1],marker='o', label="classe "+str(neg),color="red") # 'x' bleu pour la classe +1
+    
+    plt.legend()
     plt.show()
-# plot_frontiere_lineaire:
-def plot_frontiere_lineaire(desc_set, classifier,step=30):
-    mmax=desc_set.max(0)
-    mmin=desc_set.min(0)
-    x1grid,x2grid=np.meshgrid(np.linspace(mmin[0],mmax[0],step),np.linspace(mmin[1],mmax[1],step))
-    grid=np.hstack((x1grid.reshape(x1grid.size,1),x2grid.reshape(x2grid.size,1)))
-    
-    # calcul de la prediction pour chaque point de la grille
-    #res=np.array([classifier.predict(grid[i,:]) for i in range(len(grid)) ])
-    predict = classifier.forward(grid)
-    res  = np.where(predict >= 0, 1, -1)
-    res=res.reshape(x1grid.shape)
-    # tracer des frontieres
-    # colors[0] est la couleur des -1 et colors[1] est la couleur des +1
-    plt.contourf(x1grid,x2grid,res,colors=["darksalmon","skyblue"],levels=[-1000,0,1000])
 
-# plot_frontiere_non_lineaire
-def plot_frontiere_non_lineaire(desc_set,classifier ,step=30):
-    mmax=desc_set.max(0)
-    mmin=desc_set.min(0)
-    x1grid,x2grid=np.meshgrid(np.linspace(mmin[0],mmax[0],step),np.linspace(mmin[1],mmax[1],step))
-    grid=np.hstack((x1grid.reshape(x1grid.size,1),x2grid.reshape(x2grid.size,1)))
-    
-    # calcul de la prediction pour chaque point de la grille
-    #res=np.array([classifier.predict(grid[i,:]) for i in range(len(grid)) ])
-    
-    predict = classifier.forward(grid)
-    print(predict)
-    res  = np.where(predict >= 0.5, 1,0)
-    res = res.reshape(x1grid.shape)
-    # tracer des frontieres
-    # colors[0] est la couleur des -1 et colors[1] est la couleur des +1
-    plt.contourf(x1grid,x2grid,res,colors=["darksalmon","skyblue"],levels=[-1000,0,1000])
-
+  
 # generate dataset XOR
 def create_XOR(dim,s):
     data_gauss_desc, data_gauss_label = genere_dataset_gaussian(np.array([-1,1]),np.array([[s,0],[0,s]]),np.array([-1,-1]),np.array([[s,0],[0,s]]),dim,0,1)
@@ -97,10 +67,9 @@ def sigmoid(X):
     return 1/(1 + np.exp(-X))
 
 
-def y_to_one_hot(y):
+def y_to_one_hot(y,nb_classe):
     min_y = np.min(y)
     N = y.shape[0]
-    nb_classe = np.unique(y, return_counts=True)[0].shape[0]
     y_shift= y - min_y
     y_oh = np.zeros((N, nb_classe), dtype='int')
     y_oh[np.arange(N), y_shift] = 1
