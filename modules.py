@@ -46,11 +46,6 @@ class MSELoss(Loss):
         pass
 
     def forward(self, y, yhat):
-        # yhat --> la sortie de la derniere couche du reseau -> de est de taille ( N x d )
-        # avec d le nombre de neurones de la derniere couche de notre reseau
-        # on moyenne par rapport a tous le batch --> N 
-        # np.sum(np.power((yhat - y),2)) --> sera de taille (1,d)
-        #loss  = np.mean(np.power((y - yhat),2),axis=1)
         loss = np.linalg.norm(y - yhat , axis=1)**2
         if loss.ndim == 1:
             loss = loss.reshape(-1,1)
@@ -71,10 +66,9 @@ class  Module (object):
     def zero_grad(self):
         d,d_prime = self._parameters.shape
         self._gradient_parametres = np.zeros((d,d_prime))
-        #self._gradient_biais = np.zeros((N,d_prime))
+        self._gradient_biais = np.zeros((1,d_prime))
 
     def forward(self, X):
-        # X represente l'entrée du module
         pass
 
     def update_parameters(self, gradient_step=1e-3):
@@ -94,40 +88,30 @@ class  Module (object):
 
 
 class  ModuleLineaire (Module):
-    def __init__(self,W,facteur_norma,init=0):
-        d,d_prime = W
-        #dim_biais0,dim_biais1,val0,val1 = biais
-        #assert dim_biais1 == d_prime , "Dimensions incompatibles pour W et biais"
+    def __init__(self,d,d_prime,plage_biais,facteur_norma,init=0):
+
+        val0,val1 = plage_biais
 
         if init == 1:
-            #self._parameters = np.random.uniform(0,1,W) * facteur_norma
-            self._parameters = 2 * ( np.random.rand(d,d_prime) - 0.5 )
-            #self.biais = np.random.uniform(val0,val1,(dim_biais0,dim_biais1))
-
+            #self._parameters = np.random.uniform(-1,1,(d,d_prime))
+            #self.biais = np.random.uniform(val0,val1,(1,d_prime)) 
+            self._parameters = 2 * (np.random.rand(d,d_prime) - 0.5)
+            self.biais = np.random.randn(1,d_prime)
         else: 
-            self._parameters = np.zeros(W)
-            #self.biais = np.zeros((dim_biais0,d_prime))
-
-
+            self._parameters = np.zeros((d,d_prime))
+            self.biais = np.zeros((1,d_prime))
 
         self.zero_grad()
 
     
     
     def forward(self, X):
-        # X represente l'entrée du module --> (N x d)
-        # np.dot(X,self._gradient) --> (N , d')
-        # d --> le nombre de neurone du module precedent 
-        # d' --> le nombre de neurone du module actuelle 
-        # (N , d') + (N , d')
-
-
-        return np.dot(X,self._parameters)
+        return np.dot(X,self._parameters) + self.biais
 
     def update_parameters(self, gradient_step=1e-3):
         ## Calcule la mise a jour des parametres selon le gradient calcule et le pas de gradient_step
         self._parameters -= gradient_step*self._gradient_parametres
-        #self.biais -= gradient_step*self._gradient_biais
+        self.biais -= gradient_step*self._gradient_biais
 
 
     def backward_update_gradient(self, input, delta):
@@ -143,8 +127,10 @@ class  ModuleLineaire (Module):
 
 
         self._gradient_parametres +=  np.dot(input.T,delta)
-        #self._gradient_biais += np.ones((n,d_prime))
+        self._gradient_biais += np.sum(delta,axis=0)
 
+
+    
 
     def backward_delta(self, input, delta):
         ## Calcul la derivee de l'erreur
@@ -161,7 +147,17 @@ class  ModuleLineaire (Module):
 
 class  ModuleActivation(Module):
     def __init__(self):
-        super().__init__()      
+        super().__init__()    
+
+    def zero_grad(self):
+        pass 
+
+    def update_parameters(self, gradient_step=0.001):
+        pass 
+
+    def backward_update_gradient(self, input, delta):
+        pass
+
 
           
 class  ModuleTanH(ModuleActivation):
@@ -172,11 +168,6 @@ class  ModuleTanH(ModuleActivation):
         # X represente l'entrée du module
         return np.tanh(X)
 
-    def update_parameters(self, gradient_step=1e-3):
-        pass
-
-    def backward_update_gradient(self, input, delta):
-        pass
 
     def backward_delta(self, input, delta):
         # pour des questions de securité
@@ -185,12 +176,9 @@ class  ModuleTanH(ModuleActivation):
         if delta.ndim == 1:
             delta = delta.reshape(-1,1)
 
-        #deriv_tanh = np.power(sech(input),2)
-        deriv_tanh = 1 / np.cosh(input) ** 2
-        # produit element par element
-        #return np.multiply(delta,deriv_tanh)
-        #return delta * deriv_tanh
         return ( 1 - np.tanh(input)**2 ) * delta
+
+
 class  ModuleSigmoide(ModuleActivation):
     def __init__(self):
         super().__init__()
@@ -199,42 +187,22 @@ class  ModuleSigmoide(ModuleActivation):
         # X represente l'entrée du module
         return sigmoid(X)
 
-    def update_parameters(self, gradient_step=1e-3):
-        pass
-
-    def backward_update_gradient(self, input, delta):
-        pass
-
     def backward_delta(self, input, delta):
         # pour des questions de securité
         assert input.shape[0] == delta.shape[0] , "Taille du batch non prise en compte"
         # dans le cas ou delta --> (N,) autrement dit : d_prime = 1
         if delta.ndim == 1:
             delta = delta.reshape(-1,1)
-            
-        deriv_sigm = sigmoid(input) * (1 - sigmoid(input))
-        # dervi_sigm ----> N x d
-        # delta ---> N x d_prime
-        # sortie doit etre ---> N x d_prime
-        # produit element par element
-        #return np.multiply(delta,deriv_sigm)
-        #return delta * deriv_sigm
-        return ( np.exp(-input) / ( 1 + np.exp(-input) )**2 ) * delta
+
+        sig =self.forward(input)
+        return sig * (1 - sig) * delta
 
 
 class  Sequentiel(object):
-    def __init__(self,modules=[],lossModule=None):
+    def __init__(self,modules=[]):
         super().__init__()
         self.modules = modules
-        self.lossModule = lossModule
-        self.sortie_loss = []
         self.inputs = []
-
-    def addLossModule(self,lossModule):
-        self.lossModule = lossModule
-
-    def getLossModule(self):
-        return self.lossModule
 
     def addModule(self,module):
         self.modules.append(module)
@@ -246,88 +214,67 @@ class  Sequentiel(object):
         return self.modules
 
     def get_parameters(self):
-        return [(module._parameters) for module in self.modules[:-1] if not isinstance(module,ModuleActivation)]
+        return [(module._parameters) for module in self.modules if not isinstance(module,ModuleActivation)]
 
 
-    def predict(self,data,verbose=False):
+    def predict(self,data):
         input = data
         self.inputs = []
-        for module in self.modules[:-1]:
+        for module in self.modules:
             self.inputs.append(input)
-            sortie_module = self.forward_step(input,module,verbose)
+            sortie_module = self.forward_step(input,module)
             input = sortie_module
             
         return sortie_module
 
 
-    def forward_step(self,input,module,verbose):
-        output = module.forward(input)
-        if verbose:
-            print(f"Forward on module  : {module}")
-            print(f"Input : ",input.shape)
-            print(f"Output : ",output.shape)
-            print()
-        return output
-
-
-    def forward(self,data,labels,verbose=False):
+    def forward_step(self,input,module):
+        return module.forward(input)
+        
+    def forward(self,data):
         input = data
-        self.inputs = [data]
-        for module in self.modules[:-1]:
-            sortie_module = self.forward_step(input,module,verbose)
-            self.inputs.append(sortie_module)
+        self.inputs = []
+        for module in self.modules:
+            self.inputs.append(input)
+            sortie_module = self.forward_step(input,module)
             input = sortie_module
-            
-        assert labels.shape == sortie_module.shape , f"Dernier module {self.modules[-1]} incompatible avec le module Loss"
-
-        sortie_loss = self.modules[-1].forward(labels,self.inputs[-1])
-        self.inputs.append(sortie_loss)
-
-        return sortie_loss
+        
+        return sortie_module
 
 
-    def backward_step(self,input,delta,module,eps,verbose):
+    def backward_step(self,input,delta,module):
 
         # si c'est un module d'activation : faire uniquement le retro-propagation de l'erreur
         if isinstance(module,ModuleActivation):
             delta_sortie = module.backward_delta(input,delta)
         else:
             module.backward_update_gradient(input,delta)
-            module.update_parameters(eps)
-            module.zero_grad()
             delta_sortie = module.backward_delta(input,delta)
 
-        delta_sortie = module.backward_delta(input,delta)
-        if verbose:
-            print(f"Backward on module  : {module}")
-            print(f"Delta Input : ",delta.shape)
-            print(f"Delta Output: ",delta_sortie.shape)
-            print()
         return delta_sortie
 
 
-    def backward(self,labels,eps,verbose=False):
+    def backward(self,delta):
 
-        sortie_loss = self.inputs[-1]
-        assert sortie_loss.ndim != 0 and self.inputs != [] and len(self.inputs)-1 == len(self.modules), "Pass Forward pas encore faite ou mal faite!!!"
+        assert len(self.inputs) == len(self.modules), "Pass Forward pas encore faite ou mal faite!!!"
 
         modules = self.modules
         inputs  = self.inputs
 
-        # self.inputs --> [X , yhat1,yhat2,...,yhatN,sortie_loss(erreur_moy)]
-
-        delta = self.modules[-1].backward(labels,self.inputs[-2])
-        if verbose:
-            print(f"Backward on module  : {self.modules[-1]}")
-            print(f"Delta Output : ",delta.shape)
-            print()
-
-        for i_input in range(len(self.inputs)-2,0,-1):
-            module = modules[i_input-1]
-            delta_sortie = self.backward_step(inputs[i_input-1],delta,module,eps,verbose)
+        # self.inputs --> [X , yhat1,yhat2,...,yhatN]
+        
+        for i_input in range(len(self.modules)-1,-1,-1):
+            module = modules[i_input]
+            delta_sortie = self.backward_step(inputs[i_input],delta,module)
             delta = delta_sortie
 
+    def update_all(self,eps):
+        for module in self.modules:
+            module.update_parameters(eps)
 
+    def zero_grad(self):
+        for module in self.modules:
+            module.zero_grad()
 
 
 class  Optim(object):
@@ -340,28 +287,43 @@ class  Optim(object):
     def getNetwork(self):
         return self.network
 
-    def step(self,data,labels,verbose=False):
-        sortie_loss_network = self.network.forward(data,labels,verbose)
-        self.network.backward(labels,sortie_loss_network,self.eps,verbose)
-        return sortie_loss_network
+    def step(self,data,labels):
+        y_pred = self.network.forward(data)
+        loss_value = self.loss.forward(labels,y_pred)
 
+        delta_final = self.loss.backward(labels,y_pred)
 
-def SGD(network,data,labels,taille_batch,nb_epochs,verbose=False):
-
-    batch_x = None
-    batch_y = None
-
-    loss = network.getLossModule()
-    eps = 0.01
-    opti = Optim(network,loss,eps)
-    losses = []
+        self.network.zero_grad()
     
-    for i_epoch in range(nb_epochs):
-        loss_epoch = opti.step(data,labels,verbose)
-        losses.append(loss_epoch.mean())
+        self.network.backward(delta_final)
+        self.network.update_all(self.eps)
 
-        #if verbose:
-        print(f"Epoche {i_epoch} , loss : {loss_epoch.mean()} ")
-    
+        return loss_value.mean()
 
-    return opti.getNetwork().get_parameters()
+    def SGD(self,data,labels,taille_batch,nb_epochs):
+
+        n_samples = data.shape[0]
+        n_batches = n_samples // taille_batch
+
+        losses = []
+
+        for epoch in range(nb_epochs):
+            loss_epoch = 0
+
+            indices = np.random.permutation(n_samples)
+            data = data[indices]
+            labels = labels[indices]
+
+            data_batchs = np.array_split(data, n_batches)
+            labels_batchs = np.array_split(labels, n_batches)
+
+            for data_batch, labels_batch in zip(data_batchs, labels_batchs):
+                loss_epoch += self.step(data_batch, labels_batch)
+
+            loss_epoch /= n_batches
+            losses.append(loss_epoch)
+
+            if (epoch + 1) % 100 == 0:
+                print(f"Epoch {epoch+1}/{taille_batch} - Loss: {loss_epoch}")
+
+        return losses

@@ -56,7 +56,7 @@ def plot_frontiere_lineaire(desc_set, classifier,step=30):
     plt.contourf(x1grid,x2grid,res,colors=["darksalmon","skyblue"],levels=[-1000,0,1000])
 
 # plot_frontiere_non_lineaire
-def plot_frontiere_non_lineaire(desc_set,labels ,opti,step=30):
+def plot_frontiere_non_lineaire(desc_set,classifier ,step=30):
     mmax=desc_set.max(0)
     mmin=desc_set.min(0)
     x1grid,x2grid=np.meshgrid(np.linspace(mmin[0],mmax[0],step),np.linspace(mmin[1],mmax[1],step))
@@ -64,12 +64,11 @@ def plot_frontiere_non_lineaire(desc_set,labels ,opti,step=30):
     
     # calcul de la prediction pour chaque point de la grille
     #res=np.array([classifier.predict(grid[i,:]) for i in range(len(grid)) ])
-
-    predic = opti.step(desc_set,labels,verbose=False)
-   
-    # produite le vecteur de prediction
-    res  = np.where(predic >= 0.5, 1, 0)
-    res=res.reshape(x1grid.shape)
+    
+    predict = classifier.forward(grid)
+    print(predict)
+    res  = np.where(predict >= 0.5, 1,0)
+    res = res.reshape(x1grid.shape)
     # tracer des frontieres
     # colors[0] est la couleur des -1 et colors[1] est la couleur des +1
     plt.contourf(x1grid,x2grid,res,colors=["darksalmon","skyblue"],levels=[-1000,0,1000])
