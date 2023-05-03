@@ -1,5 +1,4 @@
 import numpy as np
-import math
 from utils import *
 from tqdm import tqdm
 
@@ -44,6 +43,19 @@ class CrossEntropieLoss(Loss):
         
         # de taille (N x K)
         return yhat - y_oh
+
+
+class BinaryCrossEntropie(Loss):
+
+    def __init__(self) -> None:
+        super().__init__()
+
+    def forward(self, y, yhat):
+        return - ( y * np.maximum(-100,np.log(yhat + 1e-3)) + (1-y) * np.maximum(-100,1 - np.log(yhat + 1e-3)) )
+
+    def backward(self, y, yhat):
+        return - ( y /  yhat+1e-3) + ( (1 - y) / (1 - yhat+1e-3) )
+
 
 
 
@@ -310,15 +322,14 @@ class  Sequentiel(object):
             module.zero_grad()
 
     def accuracy(self,data,labels):
-        neg_classe = min(np.unique(labels,return_counts=True)[0])
+        nb_classes = len(np.unique(labels))
+        if nb_classes == 2:
+            neg_classe = min(np.unique(labels,return_counts=True)[0])
+        else:
+            neg_classe = nb_classes
         yhat = self.predict(data,neg_classe)
-        print(yhat.shape)
         return (labels == yhat ).mean()
 
-    def accuracy_multi(self,data,labels):
-        neg_classe = 10
-        yhat = self.predict(data,neg_classe)
-        return (labels == yhat ).mean()
 
 class  Optim(object):
     def __init__(self,network,loss,eps):
@@ -333,9 +344,13 @@ class  Optim(object):
 
     def step(self,data,labels):
         y_pred = self.network.forward(data)
-        loss_value = self.loss.forward(labels,y_pred)
 
-        delta_final = self.loss.backward(labels,y_pred)
+        if isinstance(self.loss ,BinaryCrossEntropie):
+            loss_value = self.loss.forward(data,y_pred)
+            delta_final = self.loss.backward(data,y_pred)
+        else:
+            loss_value = self.loss.forward(labels,y_pred)
+            delta_final = self.loss.backward(labels,y_pred)
 
         self.network.zero_grad()
     

@@ -1,6 +1,9 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
+from PIL import Image
+import os
+from os import listdir
 
 
 
@@ -77,3 +80,41 @@ def y_to_one_hot(y,nb_classe):
 
 def softmax(yhat):
     return np.exp(yhat) / np.sum(np.exp(yhat),axis=1,keepdims=True)
+
+def affiche_image(X_train,num,title):
+    plt.title(title)
+    plt.imshow(X_train[num].reshape(16,16))
+    plt.show
+
+
+def similarity(data,data_bis,seuil=0.5):
+    return np.where(np.abs(data - data_bis).mean(axis=1) < seuil, 1, 0).mean()
+
+
+def normalisation(data):
+    dt = data.copy()
+    for i in range(data.shape[1]):
+        mini = np.min(data[:,i])
+        maxi = np.max(data[:,i])
+        dt[:,i] = (data[:,i] - mini) / (maxi - mini)
+    return dt
+
+
+def get_images(folder_dir):
+    folder_dir = "data/pepper"
+    images = []
+    for path in os.listdir(folder_dir):
+        # recuperer uniquement un seul canal(b) de couleur 
+        ima = np.array(Image.open(folder_dir+"/"+path))[:,:,2]
+        # from (256,256)  to 65536
+        images.append(ima.flatten())
+    return np.array(images)
+
+
+
+def generate_noise(shape,law='normal', mean=0, std=1):
+
+    if law == 'poisson':
+        return np.random.poisson(mean, std, shape)
+    return np.random.normal(mean, std, shape)
+    
