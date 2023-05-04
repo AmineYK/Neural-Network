@@ -4,6 +4,8 @@ import matplotlib.pyplot as plt
 from PIL import Image
 import os
 from os import listdir
+from collections import Counter
+
 
 
 
@@ -25,11 +27,12 @@ def genere_dataset_gaussian(pos_cen,pos_sig,neg_cen,neg_sig,n,neg,pos):
 
 
 # genere_dataset_gaussian_bis:
-def genere_dataset_gaussian_bis(pos_cen,pos_sig,neg_cen,neg_sig,n):
+def genere_dataset_gaussian_bis(pos_cen,pos_sig,neg_cen,neg_sig,n,neg,pos):
     data_neg = np.random.multivariate_normal(neg_cen,neg_sig,n)
     data_pos = np.random.multivariate_normal(pos_cen,pos_sig,n)
     res = np.concatenate([data_pos,data_neg])
-    labels = np.array([1 for i in range(n)] + [-1 for i in range(0,n)])
+    labels = np.array([pos for i in range(0,2*n)])
+    return res,labels
 
 # plot2DSet:
 def plot2DSet(data2_desc,data2_label,neg,pos):
@@ -52,6 +55,19 @@ def create_XOR(dim,s):
     data_gauss_desc1, data_gauss_label1 = genere_dataset_gaussian(np.array([1,-1]),np.array([[s,0],[0,s]]),np.array([1,1]),np.array([[s,0],[0,s]]),dim,0,1)
     data_desc = np.vstack((data_gauss_desc,data_gauss_desc1))
     data_label = np.concatenate((data_gauss_label,data_gauss_label1),axis=0)
+    data_label = data_label.reshape(-1,1)
+    return data_desc,data_label
+
+# generate dataset XOR
+def create_data_dirac(dim,s):
+    data_gauss_desc, data_gauss_label = genere_dataset_gaussian_bis(np.array([-1,1]),np.array([[s,0],[0,s]]),np.array([-1,-1]),np.array([[s,0],[0,s]]),dim,0,1)
+    data_gauss_desc1, data_gauss_label1 = genere_dataset_gaussian_bis(np.array([1,-1]),np.array([[s,0],[0,s]]),np.array([1,1]),np.array([[s,0],[0,s]]),dim,0,1)
+    data_gauss_desc2 =  np.random.multivariate_normal(np.array([0,0]),np.array([[s,0],[0,s]]),2*dim)
+    data_gauss_label2 = np.array([0 for _ in range(2*dim)])
+    data_desc2 = np.vstack((data_gauss_desc,data_gauss_desc1))
+    data_desc = np.vstack((data_desc2,data_gauss_desc2))
+    data_label2 = np.concatenate((data_gauss_label,data_gauss_label1),axis=0)
+    data_label = np.concatenate((data_label2,data_gauss_label2),axis=0)
     data_label = data_label.reshape(-1,1)
     return data_desc,data_label
 
@@ -115,6 +131,30 @@ def get_images(folder_dir):
 def generate_noise(shape,law='normal', mean=0, std=1):
 
     if law == 'poisson':
-        return np.random.poisson(mean, std, shape)
+        lam = mean
+        return np.random.poisson(lam,shape)
     return np.random.normal(mean, std, shape)
     
+def cluster_purity(labels_true, labels_pred):
+
+    labels_true = np.asarray(labels_true)
+    labels_pred = np.asarray(labels_pred)
+    assert labels_true.shape == labels_pred.shape  
+    
+    # Trouver les étiquettes les plus communes dans chaque cluster
+    clusters = np.unique(labels_pred)
+    n = len(labels_true)
+    counts = np.zeros((len(clusters), len(np.unique(labels_true))))
+    for i, c in enumerate(clusters):
+        mask = labels_pred == c
+        labels = labels_true[mask]
+        counts[i, :] = np.bincount(labels, minlength=len(counts[i, :]))
+    
+    # Trouver la pureté en utilisant les étiquettes les plus communes
+    purity = np.sum(np.max(counts, axis=1)) / n
+    
+    return purity
+
+
+
+

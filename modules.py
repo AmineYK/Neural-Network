@@ -10,6 +10,8 @@ class Loss(object):
 
     def backward(self, y, yhat):
         pass
+    def __str__(self) -> str:
+        pass
 
 
 
@@ -44,6 +46,9 @@ class CrossEntropieLoss(Loss):
         # de taille (N x K)
         return yhat - y_oh
 
+    def __str__(self):
+        return "Cross Entropie Loss"
+
 
 class BinaryCrossEntropie(Loss):
 
@@ -51,10 +56,16 @@ class BinaryCrossEntropie(Loss):
         super().__init__()
 
     def forward(self, y, yhat):
-        return - ( y * np.maximum(-100,np.log(yhat + 1e-3)) + (1-y) * np.maximum(-100,1 - np.log(yhat + 1e-3)) )
+        eps = 1e-3
+        return - ( y * np.maximum(-100,np.log(yhat + eps)) + (1-y) * np.maximum(-100,np.log(1 - yhat + eps)) )
 
     def backward(self, y, yhat):
-        return - ( y /  yhat+1e-3) + ( (1 - y) / (1 - yhat+1e-3) )
+        eps = 1e-3
+        return - ( y /  yhat+eps) + ( (1 - y) / (1 - yhat+eps) )
+
+
+    def __str__(self):
+        return "Binary Cross Entropie Loss"
 
 
 
@@ -75,18 +86,15 @@ class MSELoss(Loss):
         # matrice de taille (N x d)
         return -2 * (y - yhat)
 
+    def __str__(self):
+        return "Mean Square Error Loss"
+
 
 
 class  Module (object):
     def __init__(self):
         super().__init__()
         
-
-    def zero_grad(self):
-        d,d_prime = self._parameters.shape
-        self._gradient_parametres = np.zeros((d,d_prime))
-        self._gradient_biais = np.zeros((1,d_prime))
-
     def forward(self, X):
         pass
 
@@ -106,7 +114,8 @@ class  Module (object):
         pass
 
 
-class  ModuleLineaire (Module):
+class  ModuleLineaire (Module): 
+
     def __init__(self,d,d_prime,plage_biais,facteur_norma,init=0):
 
         val0,val1 = plage_biais
@@ -120,8 +129,11 @@ class  ModuleLineaire (Module):
             self._parameters = np.zeros((d,d_prime))
             self.biais = np.zeros((1,d_prime))
 
-        self.zero_grad()
-
+    
+    def zero_grad(self):
+        d,d_prime = self._parameters.shape
+        self._gradient_parametres = np.zeros((d,d_prime))
+        self._gradient_biais = np.zeros((1,d_prime))
     
     
     def forward(self, X):
@@ -317,6 +329,7 @@ class  Sequentiel(object):
         for module in self.modules:
             module.update_parameters(eps)
 
+
     def zero_grad(self):
         for module in self.modules:
             module.zero_grad()
@@ -385,24 +398,70 @@ class  Optim(object):
                 print(f"Epoch {epoch+1}/{taille_batch} - Loss: {loss_epoch}")
 
     def affichage(self,data,labels,step=1000):
-        mmax=data.max(0)
-        mmin=data.min(0)
-        x1grid,x2grid=np.meshgrid(np.linspace(mmin[0],mmax[0],step),np.linspace(mmin[1],mmax[1],step))
-        grid=np.hstack((x1grid.reshape(x1grid.size,1),x2grid.reshape(x2grid.size,1)))
-        
-        # calcul de la prediction pour chaque point de la grille
-        neg_classe = min(np.unique(labels,return_counts=True)[0])
-        yhat = self.network.predict(grid,neg_classe)
-        yhat=yhat.reshape(x1grid.shape)
-        # tracer des frontieres
-        # colors[0] est la couleur des -1 et colors[1] est la couleur des +1
-        plt.contourf(x1grid,x2grid,yhat,colors=["darksalmon","skyblue"],levels=[-1000,0,1000])
-        plot2DSet(data,labels,neg_classe,1)
-        plt.show()
+
+        if len(np.unique(labels)) == 2:
+            mmax=data.max(0)
+            mmin=data.min(0)
+            x1grid,x2grid=np.meshgrid(np.linspace(mmin[0],mmax[0],step),np.linspace(mmin[1],mmax[1],step))
+            grid=np.hstack((x1grid.reshape(x1grid.size,1),x2grid.reshape(x2grid.size,1)))
+            
+            # calcul de la prediction pour chaque point de la grille
+            neg_classe = min(np.unique(labels,return_counts=True)[0])
+            yhat = self.network.predict(grid,neg_classe)
+            yhat=yhat.reshape(x1grid.shape)
+            # tracer des frontieres
+            # colors[0] est la couleur des -1 et colors[1] est la couleur des +1
+            plt.contourf(x1grid,x2grid,yhat,colors=["darksalmon","skyblue"],levels=[-1000,0,1000])
+            plot2DSet(data,labels,neg_classe,1)
+            plt.show()
 
 
-        plt.title("Erreur moyenne")
+        plt.title("Erreur "+str(self.loss)+" moyenne")
+        plt.xlabel("Nombre d'epochs")
+        plt.ylabel("Erreur moyenne")
         plt.plot(np.arange(len(self.losses)),self.losses)
         plt.show()
 
-        print("Accuracy  : ",self.network.accuracy(data,labels))
+        if not isinstance(self.loss ,BinaryCrossEntropie):
+            print("Accuracy  : ",self.network.accuracy(data,labels))
+
+
+class  AutoEncodeur(object):
+
+    def __init__(self,network,loss,regularisation=False):
+        super().__init__()
+        self.network = network 
+        self.loss = loss
+        self.opti = None
+        self.layers_decodeur = None
+        self.layers_encodeur = None
+
+    def optimisation(self,data,labels,batch_size,epochs,eps=1e-3,verbose=False):
+
+        if verbose:
+            print("Optimisation")
+            print("Batch size : ",batch_size)
+            print("Epochs : ",epochs)
+            print("Learning rate : ",eps)
+
+
+        opti = Optim(self.network,self.loss,eps)
+        opti.SGD(data,labels,batch_size,epochs)
+        opti.affichage(data,labels)
+
+        self.opti = opti
+
+        nb_layers = len(self.network.getModules()) // 2
+        self.layers_encodeur = self.opti.getNetwork().getModules()[:nb_layers]
+        self.layers_decodeur = self.opti.getNetwork().getModules()[nb_layers:]
+
+
+    def encode(self,data):
+        encodeur = Sequentiel(self.layers_encodeur)
+        return encodeur.forward(data)
+
+
+    def decode(self,data):
+        decodeur = Sequentiel(self.layers_decodeur)
+        return decodeur.forward(data)
+
