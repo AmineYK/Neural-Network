@@ -1,6 +1,7 @@
 import numpy as np
 from utils import *
 from tqdm import tqdm
+import copy
 
 
 
@@ -57,7 +58,11 @@ class BinaryCrossEntropie(Loss):
 
     def forward(self, y, yhat):
         eps = 1e-3
-        return - ( y * np.maximum(-100,np.log(yhat + eps)) + (1-y) * np.maximum(-100,np.log(1 - yhat + eps)) )
+        loss = - ( y * np.maximum(-100,np.log(yhat + eps)) + (1-y) * np.maximum(-100,np.log(1 - yhat + eps)) )
+        if np.isnan(loss).any():
+            raise Exception("NaN values exsitantes -  Binary Cross Entropie")
+        
+        return loss
 
     def backward(self, y, yhat):
         eps = 1e-3
@@ -143,6 +148,10 @@ class  ModuleLineaire (Module):
         ## Calcule la mise a jour des parametres selon le gradient calcule et le pas de gradient_step
         self._parameters -= gradient_step*self._gradient_parametres
         self.biais -= gradient_step*self._gradient_biais
+        if np.isnan(self._parameters).any() or np.isnan(self.biais).any() :
+            raise Exception("NaN values exsitantes -  Parameters Module Lineaire")
+        
+
 
 
     def backward_update_gradient(self, input, delta):
@@ -325,9 +334,32 @@ class  Sequentiel(object):
             delta_sortie = self.backward_step(inputs[i_input],delta,module)
             delta = delta_sortie
 
-    def update_all(self,eps):
-        for module in self.modules:
-            module.update_parameters(eps)
+    def update_all(self,eps,regularisation=False):
+        
+        params = []
+        nb_module_enco = len(self.modules) // 2
+        if not regularisation:
+            for module in self.modules:
+                module.update_parameters(eps)
+
+        else:
+            for i_module in range(nb_module_enco):
+                self.modules[i_module].update_parameters(eps)
+                if not isinstance(self.modules[i_module] ,ModuleActivation):
+                    params.append(self.modules[i_module]._parameters)
+
+            i = nb_module_enco
+            for i_module in range(len(params)):
+                if not isinstance(self.modules[i] ,ModuleActivation):
+                    i += 1
+                else:
+                    self.modules[i]._parameters = copy.deepcopy(params[i_module]).T
+                    i += 1
+
+            print(self.modules[nb_module_enco-1]._parameters.shape)
+            print()
+            print(self.modules[nb_module_enco+1]._parameters.shape)
+
 
 
     def zero_grad(self):
@@ -341,6 +373,8 @@ class  Sequentiel(object):
         else:
             neg_classe = nb_classes
         yhat = self.predict(data,neg_classe)
+        print(labels.shape)
+        print(yhat.shape)
         return (labels == yhat ).mean()
 
 
@@ -355,9 +389,9 @@ class  Optim(object):
     def getNetwork(self):
         return self.network
 
-    def step(self,data,labels):
+    def step(self,data,labels,regularisation=False):
         y_pred = self.network.forward(data)
-
+        ###### POURQUOI LES LABELS !!!!
         if isinstance(self.loss ,BinaryCrossEntropie):
             loss_value = self.loss.forward(data,y_pred)
             delta_final = self.loss.backward(data,y_pred)
@@ -368,11 +402,11 @@ class  Optim(object):
         self.network.zero_grad()
     
         self.network.backward(delta_final)
-        self.network.update_all(self.eps)
+        self.network.update_all(self.eps,regularisation)
 
         return loss_value.mean()
 
-    def SGD(self,data,labels,taille_batch,nb_epochs,verbose=False):
+    def SGD(self,data,labels,taille_batch,nb_epochs,verbose=False,regularisation=False):
 
         n_samples = data.shape[0]
         n_batches = n_samples // taille_batch
@@ -383,13 +417,13 @@ class  Optim(object):
 
             indices = np.random.permutation(n_samples)
             data = data[indices]
-            labels = labels[indices]
+            labels = labels[indices] #********************************************
 
             data_batchs = np.array_split(data, n_batches)
-            labels_batchs = np.array_split(labels, n_batches)
+            labels_batchs = np.array_split(labels, n_batches)#**********************************************
 
             for data_batch, labels_batch in zip(data_batchs, labels_batchs):
-                loss_epoch += self.step(data_batch, labels_batch)
+                loss_epoch += self.step(data_batch, labels_batch,regularisation)#***********************************
 
             loss_epoch /= n_batches
             self.losses.append(loss_epoch)
@@ -435,6 +469,7 @@ class  AutoEncodeur(object):
         self.opti = None
         self.layers_decodeur = None
         self.layers_encodeur = None
+        self.regularisation = regularisation
 
     def optimisation(self,data,labels,batch_size,epochs,eps=1e-3,verbose=False):
 
@@ -446,7 +481,7 @@ class  AutoEncodeur(object):
 
 
         opti = Optim(self.network,self.loss,eps)
-        opti.SGD(data,labels,batch_size,epochs)
+        opti.SGD(data,labels,batch_size,epochs,False,self.regularisation)
         opti.affichage(data,labels)
 
         self.opti = opti
@@ -464,4 +499,5 @@ class  AutoEncodeur(object):
     def decode(self,data):
         decodeur = Sequentiel(self.layers_decodeur)
         return decodeur.forward(data)
+
 

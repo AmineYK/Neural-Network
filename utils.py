@@ -112,7 +112,12 @@ def normalisation(data):
     for i in range(data.shape[1]):
         mini = np.min(data[:,i])
         maxi = np.max(data[:,i])
-        dt[:,i] = (data[:,i] - mini) / (maxi - mini)
+        if maxi == mini:
+            if maxi > 0:
+                dt[:,i] = 1
+            else:
+                dt[:,i] = 0
+        else:dt[:,i] = (data[:,i] - mini) / (maxi - mini)
     return dt
 
 
