@@ -57,9 +57,11 @@ class BinaryCrossEntropie(Loss):
         super().__init__()
 
     def forward(self, y, yhat):
-        eps = 1e-3
-        loss = - ( y * np.maximum(-100,np.log(yhat + eps)) + (1-y) * np.maximum(-100,np.log(1 - yhat + eps)) )
+        eps = 1e-7
+        yhat =np.clip(yhat,eps,1-eps)
+        loss = - ( y * np.maximum(-100,np.log(yhat)) + (1-y) * np.maximum(-100,np.log(1 - yhat)) )
         if np.isnan(loss).any():
+            #print(yhat)
             raise Exception("NaN values exsitantes -  Binary Cross Entropie")
         
         return loss
@@ -84,6 +86,9 @@ class MSELoss(Loss):
         loss = np.linalg.norm(y - yhat , axis=1)**2
         if loss.ndim == 1:
             loss = loss.reshape(-1,1)
+
+        if np.isnan(loss).any():
+            raise Exception("NaN values exsitantes -  Mean Square Error - MSE")
 
         return loss 
 
@@ -126,10 +131,14 @@ class  ModuleLineaire (Module):
         val0,val1 = plage_biais
 
         if init == 1:
+            """"
             self._parameters = np.random.uniform(-1,1,(d,d_prime)) * facteur_norma
             self.biais = np.random.uniform(val0,val1,(1,d_prime)) 
             #self._parameters = 2 * (np.random.rand(d,d_prime) - 0.5)
-            #self.biais = np.random.randn(1,d_prime)
+            #self.biais = np.random.randn(1,d_prime) """
+            xavier_range = np.sqrt(6 / (d + d_prime))
+            self._parameters  = np.random.uniform(-xavier_range, xavier_range, size=(d, d_prime))
+            self.biais = np.zeros((1, d_prime))
         else: 
             self._parameters = np.zeros((d,d_prime))
             self.biais = np.zeros((1,d_prime))
@@ -142,6 +151,8 @@ class  ModuleLineaire (Module):
     
     
     def forward(self, X):
+        if np.isinf(self._parameters).any() or np.isinf(self.biais).any() :
+            raise Exception ("Inf values on parameters , learning rate too large")
         return np.dot(X,self._parameters) + self.biais
 
     def update_parameters(self, gradient_step=1e-3):
@@ -217,6 +228,9 @@ class SoftMax(ModuleActivation):
 
         s = softmax(input)
         return s * (1 - s) * delta
+
+    def __str__(self):
+        return "SoftMax"
           
 class  ModuleTanH(ModuleActivation):
     def __init__(self):
@@ -237,6 +251,10 @@ class  ModuleTanH(ModuleActivation):
         return ( 1 - np.tanh(input)**2 ) * delta
 
 
+    def __str__(self):
+        return "TanH"
+
+
 class  ModuleSigmoide(ModuleActivation):
     def __init__(self):
         super().__init__()
@@ -254,6 +272,9 @@ class  ModuleSigmoide(ModuleActivation):
 
         sig =self.forward(input)
         return sig * (1 - sig) * delta
+
+    def __str__(self):
+        return "Sigmoid"
 
 
 class  Sequentiel(object):
@@ -373,8 +394,6 @@ class  Sequentiel(object):
         else:
             neg_classe = nb_classes
         yhat = self.predict(data,neg_classe)
-        print(labels.shape)
-        print(yhat.shape)
         return (labels == yhat ).mean()
 
 
@@ -434,6 +453,9 @@ class  Optim(object):
     def affichage(self,data,labels,step=1000):
 
         if len(np.unique(labels)) == 2:
+
+
+
             mmax=data.max(0)
             mmin=data.min(0)
             x1grid,x2grid=np.meshgrid(np.linspace(mmin[0],mmax[0],step),np.linspace(mmin[1],mmax[1],step))
@@ -444,17 +466,26 @@ class  Optim(object):
             yhat = self.network.predict(grid,neg_classe)
             yhat=yhat.reshape(x1grid.shape)
             # tracer des frontieres
-            # colors[0] est la couleur des -1 et colors[1] est la couleur des +1
+
+            plt.figure(figsize=(15,5))
+
+            plt.subplot(121)
             plt.contourf(x1grid,x2grid,yhat,colors=["darksalmon","skyblue"],levels=[-1000,0,1000])
             plot2DSet(data,labels,neg_classe,1)
+
+            plt.subplot(122)
+            plt.title("Erreur "+str(self.loss)+" moyenne")
+            plt.xlabel("Nombre d'epochs")
+            plt.ylabel("Erreur moyenne")
+            plt.plot(np.arange(len(self.losses)),self.losses)
             plt.show()
 
-
-        plt.title("Erreur "+str(self.loss)+" moyenne")
-        plt.xlabel("Nombre d'epochs")
-        plt.ylabel("Erreur moyenne")
-        plt.plot(np.arange(len(self.losses)),self.losses)
-        plt.show()
+        else:
+            plt.title("Erreur "+str(self.loss)+" moyenne")
+            plt.xlabel("Nombre d'epochs")
+            plt.ylabel("Erreur moyenne")
+            plt.plot(np.arange(len(self.losses)),self.losses)
+            plt.show()
 
         if not isinstance(self.loss ,BinaryCrossEntropie):
             print("Accuracy  : ",self.network.accuracy(data,labels))
@@ -482,7 +513,7 @@ class  AutoEncodeur(object):
 
         opti = Optim(self.network,self.loss,eps)
         opti.SGD(data,labels,batch_size,epochs,False,self.regularisation)
-        opti.affichage(data,labels)
+        if verbose :opti.affichage(data,labels)
 
         self.opti = opti
 

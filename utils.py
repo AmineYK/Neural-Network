@@ -42,11 +42,10 @@ def plot2DSet(data2_desc,data2_label,neg,pos):
     data2_negatifs = data2_desc[data2_label == neg]
     # Extraction des exemples de classe +1:
     data2_positifs = data2_desc[data2_label == pos]
+    plt.title("Nuage de points")
     plt.scatter(data2_positifs[:,0],data2_positifs[:,1],marker='x', label="classe "+str(pos),color="blue") # 'o' rouge pour la classe -1
     plt.scatter(data2_negatifs[:,0],data2_negatifs[:,1],marker='o', label="classe "+str(neg),color="red") # 'x' bleu pour la classe +1
-    
     plt.legend()
-    plt.show()
 
   
 # generate dataset XOR
