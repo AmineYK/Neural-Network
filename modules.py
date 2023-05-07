@@ -5,6 +5,31 @@ import copy
 
 
 
+class  Module (object):
+    def __init__(self):
+        super().__init__()
+        
+    def forward(self, X):
+        pass
+
+    def update_parameters(self, gradient_step=1e-3):
+        ## Calcule la mise a jour des parametres selon le gradient calcule et le pas de gradient_step
+        pass
+
+    def backward_update_gradient(self, input, delta):
+        ## Met a jour la valeur du gradient
+        pass
+
+    def backward_delta(self, input, delta):
+        ## Calcul la derivee de l'erreur
+        pass
+
+
+
+###############################################################
+########################## MODULES LOSS########################
+###############################################################
+
 class Loss(object):
     def forward(self, y, yhat):
         pass
@@ -25,30 +50,25 @@ class CrossEntropieLoss(Loss):
 
     def forward(self, y, yhat):
 
-        # yhat deja softmaxé
-        # yhat ---> (N x K)
-        # y_oh : matrice binaire ---> (N x K)
+
         y_oh = y_to_one_hot(y,self.nb_classe)
         N = y.shape[0]
 
-        # log_sum ---> (N x 1)
         log_sum = np.log(np.sum(np.exp(yhat),axis=1,keepdims=True))
         indices = np.where(y_oh == 1)[1]
-        # selected_entropie ---> (N x 1)
+
         selected_entropie = yhat[np.arange(N), indices].reshape(-1,1)
 
-        # cout_cross_entropique ---> (N x 1)
         cout_cross_entropique = -selected_entropie + log_sum
         return cout_cross_entropique
 
     def backward(self, y, yhat):
         y_oh = y_to_one_hot(y,self.nb_classe)
         
-        # de taille (N x K)
         return yhat - y_oh
 
     def __str__(self):
-        return "Cross Entropie Loss"
+        return "Cross Entropie"
 
 
 class BinaryCrossEntropie(Loss):
@@ -61,7 +81,6 @@ class BinaryCrossEntropie(Loss):
         yhat =np.clip(yhat,eps,1-eps)
         loss = - ( y * np.maximum(-100,np.log(yhat)) + (1-y) * np.maximum(-100,np.log(1 - yhat)) )
         if np.isnan(loss).any():
-            #print(yhat)
             raise Exception("NaN values exsitantes -  Binary Cross Entropie")
         
         return loss
@@ -72,7 +91,7 @@ class BinaryCrossEntropie(Loss):
 
 
     def __str__(self):
-        return "Binary Cross Entropie Loss"
+        return "Binary Cross Entropie"
 
 
 
@@ -93,55 +112,35 @@ class MSELoss(Loss):
         return loss 
 
     def backward(self, y, yhat):
-        # matrice de taille (N x d)
         return -2 * (y - yhat)
 
     def __str__(self):
-        return "Mean Square Error Loss"
+        return "Mean Square Error"
+
+
+####################################################################
+########################## MODULE LINEAIRE ########################
+####################################################################
 
 
 
-class  Module (object):
-    def __init__(self):
-        super().__init__()
-        
-    def forward(self, X):
-        pass
+class  ModuleLineaire(Module): 
 
-    def update_parameters(self, gradient_step=1e-3):
-        ## Calcule la mise a jour des parametres selon le gradient calcule et le pas de gradient_step
-        pass
-
-    def backward_update_gradient(self, input, delta):
-        # faut pas oublier de deriver par rapport au biais aussi 
-        # le biais sera de taille ( N x d)
-        # avec d le nombre de neurone du module ( couche )
-        ## Met a jour la valeur du gradient
-        pass
-
-    def backward_delta(self, input, delta):
-        ## Calcul la derivee de l'erreur
-        pass
-
-
-class  ModuleLineaire (Module): 
-
-    def __init__(self,d,d_prime,plage_biais,facteur_norma,init=0):
+    def __init__(self,d,d_prime,plage_biais,facteur_norma,init="uniform"):
 
         val0,val1 = plage_biais
 
-        if init == 1:
-            """"
+        if init == "uniform":
             self._parameters = np.random.uniform(-1,1,(d,d_prime)) * facteur_norma
             self.biais = np.random.uniform(val0,val1,(1,d_prime)) 
-            #self._parameters = 2 * (np.random.rand(d,d_prime) - 0.5)
-            #self.biais = np.random.randn(1,d_prime) """
-            xavier_range = np.sqrt(6 / (d + d_prime))
-            self._parameters  = np.random.uniform(-xavier_range, xavier_range, size=(d, d_prime))
-            self.biais = np.zeros((1, d_prime))
-        else: 
+        elif init == "zero": 
             self._parameters = np.zeros((d,d_prime))
             self.biais = np.zeros((1,d_prime))
+        elif init == 'xavier':
+            xavier_range = np.sqrt(6 / (d + d_prime))
+            self._parameters  = np.random.uniform(-xavier_range, xavier_range, size=(d, d_prime))
+
+
 
     
     def zero_grad(self):
@@ -195,6 +194,186 @@ class  ModuleLineaire (Module):
         # deriver par rapport la ieme entrée --> biais n'intervient pas
         return np.dot(delta,self._parameters.T)
 
+
+    def __str__(self):
+        return "ModuleLineaire"+str(self._parameters.shape)
+
+
+
+class Conv1D(Module):
+    def __init__(self, k_size, chan_in, chan_out, stride, init="uniform"):
+        super().__init__()
+
+        self._k_size = k_size
+        self._chan_in = chan_in
+        self._chan_out = chan_out
+        self._stride = stride
+
+        self.__init_parameters__(init, (k_size, chan_in, chan_out), (chan_out))
+        self.zero_grad()
+
+    def __str__(self):
+        return (
+            f"Conv1D({self._k_size}, {self._chan_in}, {self._chan_out}, {self._stride})"
+        )
+
+    def zero_grad(self):
+        self._gradient_parametres= np.zeros_like(self._parameters)
+        self._gradient_biais= np.zeros_like(self.biais)
+
+    def update_parameters(self, gradient_step=1e-3):
+        self._parameters -= gradient_step*self._gradient_parametres
+        self.biais -= gradient_step*self._gradient_biais
+        if np.isnan(self._parameters).any() or np.isnan(self.biais).any() :
+            raise Exception("NaN values exsitantes -  Parameters Module Lineaire")
+
+    def forward(self, X):
+        assert X.shape[2] == self._chan_in, ValueError(
+            "Les dimensions de X doivent être (batch, lenght, chan_in)"
+        )
+
+        batch_size, length, _ = X.shape
+        dout = (length - self._k_size) // self._stride + 1
+        output = np.zeros((batch_size, dout, self._chan_out))
+
+        for i in range(dout):
+            window = X[:, i * self._stride : i * self._stride + self._k_size, :]
+            output[:, i, :] = np.tensordot(
+                window, self._parameters["W"], axes=([1, 2], [0, 1])
+            )
+
+        if self.bias:
+            output += self._parameters["b"]
+
+        return output
+
+    def backward_update_gradient(self, X, delta):
+        _, length, chan_in = X.shape
+
+        assert chan_in == self._chan_in, ValueError(
+            "Les dimensions de X doivent être (batch, length, chan_in)"
+        )
+
+        dout = (length - self._k_size) // self._stride + 1
+
+        assert delta.shape == (X.shape[0], dout, self._chan_out), ValueError(
+            "Delta doit être de dimension (batch, (length-k_size)//stride +1, chan_out)"
+        )
+
+        for i in range(dout):
+            window = X[:, i * self._stride : i * self._stride + self._k_size, :]
+            self._gradient_parametres += np.tensordot(
+                delta[:, i, :], window, axes=([0], [0])
+            ).transpose((1, 2, 0))
+
+        self._gradient_biais += np.sum(delta, axis=(0, 1))
+
+    def backward_delta(self, X, delta):
+        batch_size, length, chan_in = X.shape
+
+        assert chan_in == self._chan_in, ValueError(
+            "Les dimensions de X doivent être (batch, lenght, chan_in)"
+        )
+
+        dout = (length - self._k_size) // self._stride + 1
+
+        assert delta.shape == (batch_size, dout, self._chan_out), ValueError(
+            "Delta doit être de dimension (batch, (length-k_size)/stride +1, chan_out)"
+        )
+
+        delta_prev = np.zeros_like(X)
+
+        for i in range(dout):
+            delta_i = delta[:, i, :].reshape(batch_size, 1, 1, self._chan_out)
+
+            kernel = self._parameters[::-1, :, :].reshape(
+                1, self._k_size, chan_in, self._chan_out
+            )
+
+            delta_prev[
+                :, i * self._stride : i * self._stride + self._k_size, :
+            ] += np.sum(delta_i * kernel, axis=-1)
+
+        return delta_prev
+
+
+class MaxPool1D(ModuleLineaire):
+    def __init__(self, k_size, stride):
+        super().__init__()
+
+        self._k_size = k_size
+        self._stride = stride
+
+    def __str__(self):
+        return f"MaxPool1D({self._k_size}, {self._stride})"
+
+    def zero_grad(self):
+        pass  # No gradient
+
+    def backward_update_gradient(self, X, delta):
+        pass  # No gradient to update
+
+    def update_parameters(self, gradient_step=1e-3):
+        pass  # No parameters to update
+
+    def forward(self, X):
+        batch_size, length, chan_in = X.shape
+        dout = (length - self._k_size) // self._stride + 1
+
+        X_view = np.zeros((batch_size, dout, chan_in, self._k_size))
+
+        for i in range(dout):
+            X_view[:, i, :, :] = X[
+                :, i * self._stride : i * self._stride + self._k_size, :
+            ].transpose((0, 2, 1))
+
+        output = np.max(X_view, axis=-1)
+        return output
+
+    def backward_delta(self, X, delta):
+        batch_size, length, chan_in = X.shape
+        dout = (length - self._k_size) // self._stride + 1
+
+        assert delta.shape == (batch_size, dout, chan_in), ValueError(
+            "Delta doit être de dimension (batch, (length-k_size)/stride +1, chan_in)"
+        )
+
+        out = np.zeros_like(X)
+
+        for i in range(dout):
+            start = i * self._stride
+            end = start + self._k_size
+            out[:, start:end, :] += delta[:, i : i + 1, :] * (
+                X[:, start:end, :] == np.max(X[:, start:end, :], axis=1, keepdims=True)
+            )
+
+        return out
+
+
+    
+class Flatten(Module):
+    def __init__(self):
+        super().__init__(False)
+
+    def zero_grad(self):
+        pass  # No gradient
+
+    def backward_update_gradient(self, X, delta):
+        pass  # No gradient to update
+
+    def update_parameters(self, gradient_step=1e-3):
+        pass  # No parameters to update
+
+    def forward(self, X):
+        return X.reshape(X.shape[0], -1)
+
+    def backward_delta(self, X, delta):
+        return delta.reshape(X.shape)
+
+
+#######################################################################
+########################## MODULES ACTIVATIONS ########################
+#######################################################################
 
 class  ModuleActivation(Module):
     def __init__(self):
@@ -275,6 +454,32 @@ class  ModuleSigmoide(ModuleActivation):
 
     def __str__(self):
         return "Sigmoid"
+
+
+
+class ReLU(Module):
+    def __init__(self):
+        super().__init__()
+
+    def zero_grad(self):
+        pass  # No gradient to zero
+
+    def update_parameters(self, gradient_step=1e-3):
+        pass  # No parametrs to update
+
+    def backward_update_gradient(self, X, delta):
+        pass  # No gradient to update
+
+    def forward(self, X):
+        return np.maximum(0, X)
+
+    def backward_delta(self, X, delta):
+        return np.where(X > 0, delta, 0)
+
+
+##################################################################
+########################## AUTRES MODULES ########################
+##################################################################
 
 
 class  Sequentiel(object):

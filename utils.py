@@ -3,8 +3,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
 import os
-from os import listdir
-from collections import Counter
+import pydot
+
 
 
 
@@ -139,7 +139,7 @@ def generate_noise(shape,law='normal', mean=0, std=1):
         return np.random.poisson(lam,shape)
     return np.random.normal(mean, std, shape)
     
-def cluster_purity(labels_true, labels_pred):
+def cluster_purity(labels_true, labels_pred,nb_classes=None):
 
     labels_true = np.asarray(labels_true)
     labels_pred = np.asarray(labels_pred)
@@ -148,7 +148,8 @@ def cluster_purity(labels_true, labels_pred):
     # Trouver les étiquettes les plus communes dans chaque cluster
     clusters = np.unique(labels_pred)
     n = len(labels_true)
-    counts = np.zeros((len(clusters), len(np.unique(labels_true))))
+    if nb_classes == None : nb_classes = len(np.unique(labels_true))
+    counts = np.zeros((len(clusters),nb_classes ))
     for i, c in enumerate(clusters):
         mask = labels_pred == c
         labels = labels_true[mask]
@@ -159,6 +160,68 @@ def cluster_purity(labels_true, labels_pred):
     
     return purity
 
+
+
+def cara_to_int(labels):
+    chars = np.unique(labels)
+
+    l = []
+
+    for let in labels:
+        for i,cara in enumerate(chars):
+            if let == cara:
+                l.append(i)
+
+    return np.array(l)
+
+
+
+def net_to_graph(net, net_name="network", horizontal=False):
+
+    modules = net.modules
+    n = len(modules)
+    modules_list = np.array_split(modules, np.ceil(n / 6))
+
+    if os.path.exists(net_name):    
+        os.rmdir(net_name)
+
+    os.mkdir(net_name)
+    
+    base = 0
+    for i, modules in enumerate(modules_list):
+        net_to_graph_step(modules, net_name, i, horizontal, base)
+        base += len(modules)
+
+
+
+
+def net_to_graph_step(liste_modules,name,nb,horizontal, base):
+
+
+    if horizontal:
+        graph = pydot.Dot(graph_type="digraph", rankdir="LR")
+    else:
+        graph = pydot.Dot(graph_type="digraph")
+
+    for i, layer in enumerate(liste_modules):
+        label = f"{base + i} - {layer}"
+
+        if layer.__class__.__name__ in ["ModuleLineaire", "Conv1D", "MaxPool1D", "Flatten"]:
+            node = pydot.Node(label, shape="box")
+        else:
+            node = pydot.Node(label)
+
+        graph.add_node(node)
+
+    nodes = graph.get_nodes()
+
+    for i in range(len(nodes) - 1):
+        src_node = nodes[i]
+        dst_node = nodes[i + 1]
+        edge = pydot.Edge(src_node, dst_node)
+        graph.add_edge(edge)
+
+    graph.write_png(f"{name}/{nb}.png")
 
 
 
